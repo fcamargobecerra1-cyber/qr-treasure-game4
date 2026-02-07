@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>QR Treasure Hunt</title>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<!-- QR Scanner -->
+<script src="https://unpkg.com/html5-qrcode"></script>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: #f4f4f4;
+  text-align: center;
+  padding: 20px;
+}
+input, select, button {
+  padding: 10px;
+  margin: 6px;
+}
+#game, #rankingBox {
+  display: none;
+}
+#reader {
+  margin: auto;
+  width: 300px;
+  height: 300px;
+  border: 2px solid #333;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🏴‍☠️ Treasure Hunt</h1>
+
+<!-- LOGIN -->
+<div id="login">
+  <input id="name" placeholder="Jugador"><br>
+  <input id="team" placeholder="Equipo"><br>
+
+  <select id="route">
+    <option value="">Selecciona ruta</option>
+    <option value="A">Ruta A</option>
+    <option value="B">Ruta B</option>
+  </select><br>
+
+  <button onclick="startGame()">Start</button>
+</div>
+
+<!-- GAME -->
+<div id="game">
+  <h2 id="playerInfo"></h2>
+  <p id="time">⏱ 0 s</p>
+
+  <h3>📥 QR manual</h3>
+  <input id="qrInput" placeholder="Código QR">
+  <button onclick="scanQR()">Enviar</button>
+
+  <h3>📷 Cámara</h3>
+  <div id="reader"></div>
+  <button onclick="startScanner()">Activar</button>
+  <button onclick="stopScanner()">Detener</button>
+
+  <h3>🧩 Pista</h3>
+  <div id="clue"></div>
+
+  <h3>⭐ Logros</h3>
+  <ul id="trophies"></ul>
+</div>
+
+<!-- RANKING -->
+<div id="rankingBox">
+  <h2>🏆 Ranking</h2>
+  <ol id="ranking"></ol>
+</div>
+
+<script>
+/* ================= FIREBASE ================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyCnbWVep308i-Bo12xeJJoo_VFPd9RJoOI",
+  authDomain: "qr-treasure-game.firebaseapp.com",
+  projectId: "qr-treasure-game",
+  storageBucket: "qr-treasure-game.firebasestorage.app",
+  messagingSenderId: "255665365234",
+  appId: "1:255665365234:web:b0d76d1cbd6256849df06b"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+/* ================= VARIABLES ================= */
+let player = "";
+let team = "";
+let route = "";
+let startTime = 0;
+let finished = false;
+let scanner = null;
+
+/* ================= RUTAS ================= */
+const ROUTES = {
+  A: ["QR1","QR2","QR3","QR4","QR5","QR6","QR7","QR8_FINAL"],
+  B: ["QR8_FINAL","QR7","QR6","QR5","QR4","QR3","QR2","QR1"]
+};
+
+/* ================= PISTAS ================= */
+const clues = {
+  QR1: "🌲 Baños bloqueados por un árbol",
+  QR2: "☕ Cafetería en obra negra",
+  QR3: "🐔 Aquí murió la gallina Claudio",
+  QR4: "🗼 Torre que da señal",
+  QR5: "🌊 Lago seco",
+  QR6: "🗿 Piedras misteriosas",
+  QR7: "🌳 Tronco gigante",
+  QR8_FINAL: "🏁 ¡Final!",
+  BONUS_50: "🌟 Bonus -50s",
+  BONUS_30: "🌟 Bonus -30s",
+  WINNER_1: "⭐ Ganador -60s",
+  WINNER_2: "⭐ Ganador -60s",
+  WINNER_3: "⭐ Ganador -60s"
+};
+
+/* ================= INICIO ================= */
+function startGame() {
+  player = name.value.trim();
+  team = team.value.trim();
+  route = route.value;
+
+  if (!player || !team || !route) {
+    alert("Completa todos los campos");
+    return;
+  }
+
+  startTime = Date.now();
+
+  db.collection("games").doc(player).set({
+    player,
+    team,
+    route,
+    trophies: [],
+    progress: 0,
+    finished: false,
+    time: 0
+  });
+
+  login.style.display = "none";
+  game.style.display = "block";
+  playerInfo.innerText = `Jugador: ${player} | Equipo: ${team} | Ruta: ${route}`;
+
+  setInterval(updateTime, 1000);
+}
+
+/* ================= TIEMPO ================= */
+function updateTime() {
+  if (finished) return;
+  time.innerText = `⏱ ${Math.floor((Date.now() - startTime) / 1000)} s`;
+}
+
+/* ================= ESCANEO ================= */
+function scanQR() {
+  if (finished) return;
+
+  const qr = qrInput.value.trim();
+  if (!qr) return;
+
+  const ref = db.collection("games").doc(player);
+
+  ref.get().then(doc => {
+    const data = doc.data();
+
+    /* ===== BONUS / WINNER (máx 2 veces) ===== */
+    if (qr.startsWith("BONUS") || qr.startsWith("WINNER")) {
+      const usedTimes = data.trophies.filter(t => t === qr).length;
+      if (usedTimes >= 2) {
+        alert("⚠️ Este bonus ya se usó 2 veces");
+        return;
+      }
+
+      if (qr === "BONUS_50") startTime -= 50000;
+      if (qr === "BONUS_30") startTime -= 30000;
+      if (qr.startsWith("WINNER")) startTime -= 60000;
+
+      data.trophies.push(qr);
+      ref.update(data);
+
+      clue.innerText = clues[qr];
+      renderTrophies(data.trophies);
+      return;
+    }
+
+    /* ===== RUTA NORMAL ===== */
+    const expected = ROUTES[data.route][data.progress];
+    if (qr !== expected) {
+      alert("❌ QR incorrecto para esta ruta");
+      return;
+    }
+
+    data.trophies.push(qr);
+    data.progress++;
+
+    if (qr === "QR8_FINAL") {
+      finished = true;
+      data.finished = true;
+      data.time = Math.floor((Date.now() - startTime) / 1000);
+      rankingBox.style.display = "block";
+      loadRanking();
+    }
+
+    ref.update(data);
+    clue.innerText = clues[qr];
+    renderTrophies(data.trophies);
+  });
+}
+
+/* ================= LOGROS ================= */
+function renderTrophies(list) {
+  trophies.innerHTML = "";
+  list.forEach(t => {
+    const li = document.createElement("li");
+    li.innerText = t;
+    trophies.appendChild(li);
+  });
+}
+
+/* ================= RANKING ================= */
+async function loadRanking() {
+  ranking.innerHTML = "";
+  const snap = await db.collection("games")
+    .where("finished","==",true)
+    .orderBy("time")
+    .limit(10)
+    .get();
+
+  snap.forEach(d => {
+    const li = document.createElement("li");
+    li.innerText = `${d.data().team} - ${d.data().player} (${d.data().time}s)`;
+    ranking.appendChild(li);
+  });
+}
+
+/* ================= CÁMARA ================= */
+function startScanner() {
+  scanner = new Html5Qrcode("reader");
+  scanner.start(
+    { facingMode: "environment" },
+    { fps: 10, qrbox: 250 },
+    qr => {
+      qrInput.value = qr;
+      scanQR();
+    }
+  );
+}
+
+function stopScanner() {
+  if (scanner) scanner.stop();
+}
+</script>
+
+</body>
+</html>
