@@ -126,9 +126,13 @@ const clues = {
 
 /* ================= INICIO ================= */
 function startGame() {
-  player = name.value.trim();
-  team = team.value.trim();
-  route = route.value;
+  const playerInput = document.getElementById("name");
+  const teamInput = document.getElementById("team");
+  const routeInput = document.getElementById("route");
+
+  player = playerInput.value.trim();
+  team = teamInput.value.trim();
+  route = routeInput.value;
 
   if (!player || !team || !route) {
     alert("Completa todos los campos");
@@ -147,9 +151,11 @@ function startGame() {
     time: 0
   });
 
-  login.style.display = "none";
-  game.style.display = "block";
-  playerInfo.innerText = `Jugador: ${player} | Equipo: ${team} | Ruta: ${route}`;
+  document.getElementById("login").style.display = "none";
+  document.getElementById("game").style.display = "block";
+
+  document.getElementById("playerInfo").innerText =
+    `Jugador: ${player} | Equipo: ${team} | Ruta: ${route}`;
 
   setInterval(updateTime, 1000);
 }
@@ -157,14 +163,15 @@ function startGame() {
 /* ================= TIEMPO ================= */
 function updateTime() {
   if (finished) return;
-  time.innerText = `⏱ ${Math.floor((Date.now() - startTime) / 1000)} s`;
+  document.getElementById("time").innerText =
+    `⏱ ${Math.floor((Date.now() - startTime) / 1000)} s`;
 }
 
 /* ================= ESCANEO ================= */
 function scanQR() {
   if (finished) return;
 
-  const qr = qrInput.value.trim();
+  const qr = document.getElementById("qrInput").value.trim();
   if (!qr) return;
 
   const ref = db.collection("games").doc(player);
@@ -174,9 +181,9 @@ function scanQR() {
 
     /* ===== BONUS / WINNER (máx 2 veces) ===== */
     if (qr.startsWith("BONUS") || qr.startsWith("WINNER")) {
-      const usedTimes = data.trophies.filter(t => t === qr).length;
-      if (usedTimes >= 2) {
-        alert("⚠️ Este bonus ya se usó 2 veces");
+      const used = data.trophies.filter(t => t === qr).length;
+      if (used >= 2) {
+        alert("⚠️ Este bonus ya fue usado 2 veces");
         return;
       }
 
@@ -187,7 +194,7 @@ function scanQR() {
       data.trophies.push(qr);
       ref.update(data);
 
-      clue.innerText = clues[qr];
+      document.getElementById("clue").innerText = clues[qr];
       renderTrophies(data.trophies);
       return;
     }
@@ -206,39 +213,43 @@ function scanQR() {
       finished = true;
       data.finished = true;
       data.time = Math.floor((Date.now() - startTime) / 1000);
-      rankingBox.style.display = "block";
+      document.getElementById("rankingBox").style.display = "block";
       loadRanking();
     }
 
     ref.update(data);
-    clue.innerText = clues[qr];
+    document.getElementById("clue").innerText = clues[qr];
     renderTrophies(data.trophies);
   });
 }
 
 /* ================= LOGROS ================= */
 function renderTrophies(list) {
-  trophies.innerHTML = "";
+  const ul = document.getElementById("trophies");
+  ul.innerHTML = "";
   list.forEach(t => {
     const li = document.createElement("li");
     li.innerText = t;
-    trophies.appendChild(li);
+    ul.appendChild(li);
   });
 }
 
 /* ================= RANKING ================= */
 async function loadRanking() {
-  ranking.innerHTML = "";
+  const list = document.getElementById("ranking");
+  list.innerHTML = "";
+
   const snap = await db.collection("games")
     .where("finished","==",true)
     .orderBy("time")
     .limit(10)
     .get();
 
-  snap.forEach(d => {
+  snap.forEach(doc => {
+    const d = doc.data();
     const li = document.createElement("li");
-    li.innerText = `${d.data().team} - ${d.data().player} (${d.data().time}s)`;
-    ranking.appendChild(li);
+    li.innerText = `${d.team} - ${d.player} (${d.time}s)`;
+    list.appendChild(li);
   });
 }
 
@@ -249,7 +260,7 @@ function startScanner() {
     { facingMode: "environment" },
     { fps: 10, qrbox: 250 },
     qr => {
-      qrInput.value = qr;
+      document.getElementById("qrInput").value = qr;
       scanQR();
     }
   );
