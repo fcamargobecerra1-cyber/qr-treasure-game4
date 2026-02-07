@@ -100,6 +100,7 @@ let route = "";
 let startTime = 0;
 let finished = false;
 let scanner = null;
+let bonusTime = 0; // tiempo acumulado por bonus/winner
 
 /* ================= RUTAS ================= */
 const ROUTES = {
@@ -126,13 +127,9 @@ const clues = {
 
 /* ================= INICIO ================= */
 function startGame() {
-  const playerInput = document.getElementById("name");
-  const teamInput = document.getElementById("team");
-  const routeInput = document.getElementById("route");
-
-  player = playerInput.value.trim();
-  team = teamInput.value.trim();
-  route = routeInput.value;
+  player = name.value.trim();
+  team = team.value.trim();
+  route = route.value;
 
   if (!player || !team || !route) {
     alert("Completa todos los campos");
@@ -140,6 +137,8 @@ function startGame() {
   }
 
   startTime = Date.now();
+  finished = false;
+  bonusTime = 0;
 
   db.collection("games").doc(player).set({
     player,
@@ -151,11 +150,9 @@ function startGame() {
     time: 0
   });
 
-  document.getElementById("login").style.display = "none";
-  document.getElementById("game").style.display = "block";
-
-  document.getElementById("playerInfo").innerText =
-    `Jugador: ${player} | Equipo: ${team} | Ruta: ${route}`;
+  login.style.display = "none";
+  game.style.display = "block";
+  playerInfo.innerText = `Jugador: ${player} | Equipo: ${team} | Ruta: ${route}`;
 
   setInterval(updateTime, 1000);
 }
@@ -163,15 +160,14 @@ function startGame() {
 /* ================= TIEMPO ================= */
 function updateTime() {
   if (finished) return;
-  document.getElementById("time").innerText =
-    `⏱ ${Math.floor((Date.now() - startTime) / 1000)} s`;
+  time.innerText = `⏱ ${Math.floor((Date.now() - startTime) / 1000 - bonusTime)} s`;
 }
 
 /* ================= ESCANEO ================= */
 function scanQR() {
   if (finished) return;
 
-  const qr = document.getElementById("qrInput").value.trim();
+  const qr = qrInput.value.trim();
   if (!qr) return;
 
   const ref = db.collection("games").doc(player);
@@ -181,20 +177,20 @@ function scanQR() {
 
     /* ===== BONUS / WINNER (máx 2 veces) ===== */
     if (qr.startsWith("BONUS") || qr.startsWith("WINNER")) {
-      const used = data.trophies.filter(t => t === qr).length;
-      if (used >= 2) {
-        alert("⚠️ Este bonus ya fue usado 2 veces");
+      const usedTimes = data.trophies.filter(t => t === qr).length;
+      if (usedTimes >= 2) {
+        alert("⚠️ Este bonus ya se usó 2 veces");
         return;
       }
 
-      if (qr === "BONUS_50") startTime -= 50000;
-      if (qr === "BONUS_30") startTime -= 30000;
-      if (qr.startsWith("WINNER")) startTime -= 60000;
+      if (qr === "BONUS_50") bonusTime += 50;
+      if (qr === "BONUS_30") bonusTime += 30;
+      if (qr.startsWith("WINNER")) bonusTime += 60;
 
       data.trophies.push(qr);
       ref.update(data);
 
-      document.getElementById("clue").innerText = clues[qr];
+      clue.innerText = clues[qr];
       renderTrophies(data.trophies);
       return;
     }
@@ -211,45 +207,45 @@ function scanQR() {
 
     if (qr === "QR8_FINAL") {
       finished = true;
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
       data.finished = true;
-      data.time = Math.floor((Date.now() - startTime) / 1000);
-      document.getElementById("rankingBox").style.display = "block";
+      data.time = elapsed - bonusTime; // aplicamos bonus/winner
+      ref.update(data);
+
+      rankingBox.style.display = "block";
       loadRanking();
+    } else {
+      ref.update(data);
     }
 
-    ref.update(data);
-    document.getElementById("clue").innerText = clues[qr];
+    clue.innerText = clues[qr];
     renderTrophies(data.trophies);
   });
 }
 
 /* ================= LOGROS ================= */
 function renderTrophies(list) {
-  const ul = document.getElementById("trophies");
-  ul.innerHTML = "";
+  trophies.innerHTML = "";
   list.forEach(t => {
     const li = document.createElement("li");
     li.innerText = t;
-    ul.appendChild(li);
+    trophies.appendChild(li);
   });
 }
 
 /* ================= RANKING ================= */
 async function loadRanking() {
-  const list = document.getElementById("ranking");
-  list.innerHTML = "";
-
+  ranking.innerHTML = "";
   const snap = await db.collection("games")
     .where("finished","==",true)
-    .orderBy("time")
+    .orderBy("time")  // menor tiempo primero
     .limit(10)
     .get();
 
-  snap.forEach(doc => {
-    const d = doc.data();
+  snap.forEach(d => {
     const li = document.createElement("li");
-    li.innerText = `${d.team} - ${d.player} (${d.time}s)`;
-    list.appendChild(li);
+    li.innerText = `${d.data().team} - ${d.data().player} (${d.data().time}s)`;
+    ranking.appendChild(li);
   });
 }
 
@@ -260,7 +256,7 @@ function startScanner() {
     { facingMode: "environment" },
     { fps: 10, qrbox: 250 },
     qr => {
-      document.getElementById("qrInput").value = qr;
+      qrInput.value = qr;
       scanQR();
     }
   );
